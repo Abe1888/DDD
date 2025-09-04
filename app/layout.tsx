@@ -49,22 +49,15 @@ export default function RootLayout({
         {/* Favicon */}
         <link rel="icon" href="/favicon.ico" />
         
-        {/* Prevent FOUC */}
+        {/* Prevent FOUC - Modified to fix hydration mismatch */}
         <style dangerouslySetInnerHTML={{
           __html: `
-            html { visibility: hidden; opacity: 0; }
-            html.loaded { visibility: visible; opacity: 1; transition: opacity 0.3s; }
+            html { visibility: visible; opacity: 1; transition: opacity 0.3s; }
           `
         }} />
       </head>
       <body className={`${inter.className} antialiased`}>
-        <script dangerouslySetInnerHTML={{
-          __html: `
-            document.addEventListener('DOMContentLoaded', function() {
-              document.documentElement.classList.add('loaded');
-            });
-          `
-        }} />
+        {/* Removed DOMContentLoaded script that was causing hydration mismatch */}
         <ErrorBoundary>
           <ConnectionGuard>
             <MemoProvider>

@@ -1,100 +1,67 @@
 'use client';
 
-import React, { useState, memo, useCallback, useRef } from 'react';
-import { MapPin, Truck, Navigation, Fuel, CheckCircle2, AlertTriangle } from 'lucide-react';
-import { useVehiclesSWR, useLocationsSWR } from '@/lib/hooks/useSWR';
+import React, { useState, memo, useMemo, useCallback, useRef } from 'react';
+import { MapPin, AlertTriangle } from 'lucide-react';
+import { useVehiclesOptimized, useLocationsOptimized } from '@/lib/hooks/useOptimizedSWR';
 
-const LocationOverview = memo(() => {
-  const { data: vehicles = [], isLoading: vehiclesLoading } = useVehiclesSWR();
-  const { data: locations = [], isLoading: locationsLoading } = useLocationsSWR();
+const OptimizedLocationOverview = memo(() => {
+  const { data: vehicles = [], isLoading: vehiclesLoading } = useVehiclesOptimized();
+  const { data: locations = [], isLoading: locationsLoading } = useLocationsOptimized();
   const [selectedLocation, setSelectedLocation] = useState<string | null>(null);
   const calculationCache = useRef<Map<string, any>>(new Map());
 
   const loading = vehiclesLoading || locationsLoading;
 
-  // Timeout for loading state
-  const [hasTimedOut, setHasTimedOut] = useState(false);
-  React.useEffect(() => {
-    const timer = setTimeout(() => {
-      if (loading) {
-        setHasTimedOut(true);
-      }
-    }, 15000);
-    return () => clearTimeout(timer);
-  }, [loading]);
+  // Memoized and cached location progress calculations
+  const getLocationProgress = useCallback((locationName: string) => {
+    const cacheKey = `${locationName}-${vehicles.length}-${vehicles.filter(v => v.status === 'Completed').length}`;
+    if (calculationCache.current.has(cacheKey)) {
+      return calculationCache.current.get(cacheKey);
+    }
+    
+    const locationVehicles = vehicles.filter(v => v.location === locationName);
+    const completed = locationVehicles.filter(v => v.status === 'Completed').length;
+    const total = locationVehicles.length;
 
-  React.useEffect(() => {
-    if (!loading) setHasTimedOut(false);
-  }, [loading]);
+    const result = {
+      total,
+      completed,
+      inProgress: locationVehicles.filter(v => v.status === 'In Progress').length,
+      pending: locationVehicles.filter(v => v.status === 'Pending').length,
+      progress: total > 0 ? Math.round((completed / total) * 100) : 0
+    };
+    
+    calculationCache.current.set(cacheKey, result);
+    return result;
+  }, [vehicles]);
 
-  // Memoized progress calculation
-  const getLocationProgress = useCallback(
-    (locationName: string) => {
-      const cacheKey = `${locationName}-${vehicles.length}-${vehicles.filter(v => v.status === 'Completed').length}`;
-      if (calculationCache.current.has(cacheKey)) return calculationCache.current.get(cacheKey);
+  const getLocationDays = useCallback((locationName: string) => {
+    const cacheKey = `days-${locationName}-${vehicles.length}`;
+    if (calculationCache.current.has(cacheKey)) {
+      return calculationCache.current.get(cacheKey);
+    }
+    
+    const locationVehicles = vehicles.filter(v => v.location === locationName);
+    const days = [...new Set(locationVehicles.map(v => v.day))].sort((a, b) => a - b);
+    
+    calculationCache.current.set(cacheKey, days);
+    return days;
+  }, [vehicles]);
 
-      const locationVehicles = vehicles.filter(v => v.location === locationName);
-      const completed = locationVehicles.filter(v => v.status === 'Completed').length;
-      const total = locationVehicles.length;
+  const handleLocationClick = useCallback((locationName: string) => {
+    setSelectedLocation(selectedLocation === locationName ? null : locationName);
+  }, [selectedLocation]);
 
-      const result = {
-        total,
-        completed,
-        inProgress: locationVehicles.filter(v => v.status === 'In Progress').length,
-        pending: locationVehicles.filter(v => v.status === 'Pending').length,
-        progress: total > 0 ? Math.round((completed / total) * 100) : 0
-      };
-
-      calculationCache.current.set(cacheKey, result);
-      return result;
-    },
-    [vehicles]
-  );
-
-  const getLocationDays = useCallback(
-    (locationName: string) => {
-      const cacheKey = `days-${locationName}-${vehicles.length}`;
-      if (calculationCache.current.has(cacheKey)) return calculationCache.current.get(cacheKey);
-
-      const locationVehicles = vehicles.filter(v => v.location === locationName);
-      const days = Array.from(new Set(locationVehicles.map(v => v.day))).sort((a, b) => a - b);
-
-      calculationCache.current.set(cacheKey, days);
-      return days;
-    },
-    [vehicles]
-  );
-
-  const handleLocationClick = useCallback(
-    (locationName: string) => {
-      setSelectedLocation(selectedLocation === locationName ? null : locationName);
-    },
-    [selectedLocation]
-  );
-
-  // Clear cache on vehicles update
+  // Clear cache when vehicles data changes
   React.useEffect(() => {
     calculationCache.current.clear();
   }, [vehicles]);
-
-  // Loading states
-  if (loading && !hasTimedOut) {
-    return (
-      <div className="bg-white border border-slate-200 rounded-lg p-8 text-center animate-pulse">
-        <div className="text-sm text-slate-600">Loading location data...</div>
-      </div>
-    );
-  }
-
-  if (hasTimedOut) {
+  
+  // Show cached data immediately
+  if (loading && locations.length === 0) {
     return (
       <div className="bg-white border border-slate-200 rounded-lg p-8 text-center">
-        <AlertTriangle className="w-12 h-12 text-yellow-500 mx-auto mb-4" />
-        <h3 className="text-lg font-semibold text-slate-900 mb-2">Loading Timeout</h3>
-        <p className="text-sm text-slate-600 mb-4">Location data is taking longer than expected to load.</p>
-        <button onClick={() => window.location.reload()} className="btn-primary">
-          Reload Page
-        </button>
+        <div className="text-sm text-slate-600">Loading location data...</div>
       </div>
     );
   }
@@ -105,7 +72,10 @@ const LocationOverview = memo(() => {
         <MapPin className="w-12 h-12 text-slate-400 mx-auto mb-4" />
         <h3 className="text-lg font-semibold text-slate-900 mb-2">No Locations Available</h3>
         <p className="text-sm text-slate-600 mb-4">Location data is being loaded or not yet configured.</p>
-        <button onClick={() => window.location.reload()} className="btn-secondary">
+        <button
+          onClick={() => window.location.reload()}
+          className="btn-secondary"
+        >
           Refresh Data
         </button>
       </div>
@@ -125,41 +95,41 @@ const LocationOverview = memo(() => {
           </div>
         </div>
       </div>
-
+      
       <div className="p-6">
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
-          {locations.map(location => {
+          {locations.map((location) => {
             const progress = getLocationProgress(location.name);
             const days = getLocationDays(location.name);
             const isSelected = selectedLocation === location.name;
-
+            
             return (
-              <div
+              <div 
                 key={location.name}
                 className={`rounded-lg p-6 cursor-pointer border transition-all duration-200 ${
-                  isSelected
-                    ? 'bg-blue-600 text-white border-blue-600 transform scale-105'
+                  isSelected 
+                    ? 'bg-blue-600 text-white border-blue-600 transform scale-105' 
                     : 'bg-slate-50 hover:bg-slate-100 border-slate-200 hover:shadow-md'
                 }`}
                 onClick={() => handleLocationClick(location.name)}
               >
                 <div className="flex items-center justify-between mb-4">
                   <div className="flex items-center space-x-3">
-                    <div
-                      className={`w-6 h-6 rounded-md flex items-center justify-center ${
-                        isSelected ? 'bg-white bg-opacity-20' : 'bg-white'
-                      }`}
-                    >
+                    <div className={`w-6 h-6 rounded-md flex items-center justify-center ${
+                      isSelected ? 'bg-white bg-opacity-20' : 'bg-white'
+                    }`}>
                       <MapPin className={`w-3 h-3 ${isSelected ? 'text-blue-600' : 'text-slate-600'}`} />
                     </div>
                     <div className="min-w-0 flex-1">
                       <h4 className={`text-base font-semibold ${isSelected ? 'text-white' : 'text-slate-900'}`}>
                         {location.name}
                       </h4>
-                      <p className={`text-sm ${isSelected ? 'text-blue-100' : 'text-slate-600'}`}>{location.duration}</p>
+                      <p className={`text-sm ${isSelected ? 'text-blue-100' : 'text-slate-600'}`}>
+                        {location.duration}
+                      </p>
                     </div>
                   </div>
-
+                  
                   <div className={`text-right ${isSelected ? 'text-white' : 'text-slate-600'}`}>
                     <div className="text-xl font-semibold">{progress.progress}%</div>
                     <div className="text-xs">Complete</div>
@@ -168,45 +138,47 @@ const LocationOverview = memo(() => {
 
                 {/* Progress Bar */}
                 <div className={`w-full rounded-full h-2 mb-4 ${isSelected ? 'bg-white bg-opacity-20' : 'bg-slate-200'}`}>
-                  <div
-                    className={`h-2 rounded-full transition-all duration-500 ${isSelected ? 'bg-white' : 'bg-blue-500'}`}
+                  <div 
+                    className={`h-2 rounded-full transition-all duration-500 ${
+                      isSelected ? 'bg-white' : 'bg-blue-500'
+                    }`}
                     style={{ width: `${progress.progress}%` }}
                   ></div>
                 </div>
 
                 {/* Statistics Grid */}
                 <div className="grid grid-cols-3 gap-3">
-                  <div
-                    className={`text-center p-3 rounded-md ${
-                      isSelected ? 'bg-white bg-opacity-10' : 'bg-white border border-slate-200'
-                    }`}
-                  >
+                  <div className={`text-center p-3 rounded-md ${
+                    isSelected ? 'bg-white bg-opacity-10' : 'bg-white border border-slate-200'
+                  }`}>
                     <div className={`text-lg font-semibold ${isSelected ? 'text-white' : 'text-slate-900'}`}>
                       {location.vehicles}
                     </div>
-                    <div className={`text-xs ${isSelected ? 'text-blue-100' : 'text-slate-600'}`}>Vehicles</div>
+                    <div className={`text-xs ${isSelected ? 'text-blue-100' : 'text-slate-600'}`}>
+                      Vehicles
+                    </div>
                   </div>
-
-                  <div
-                    className={`text-center p-3 rounded-md ${
-                      isSelected ? 'bg-white bg-opacity-10' : 'bg-white border border-slate-200'
-                    }`}
-                  >
+                  
+                  <div className={`text-center p-3 rounded-md ${
+                    isSelected ? 'bg-white bg-opacity-10' : 'bg-white border border-slate-200'
+                  }`}>
                     <div className={`text-lg font-semibold ${isSelected ? 'text-white' : 'text-blue-600'}`}>
                       {location.gps_devices}
                     </div>
-                    <div className={`text-xs ${isSelected ? 'text-blue-100' : 'text-blue-600'}`}>GPS</div>
+                    <div className={`text-xs ${isSelected ? 'text-blue-100' : 'text-blue-600'}`}>
+                      GPS
+                    </div>
                   </div>
-
-                  <div
-                    className={`text-center p-3 rounded-md ${
-                      isSelected ? 'bg-white bg-opacity-10' : 'bg-white border border-slate-200'
-                    }`}
-                  >
+                  
+                  <div className={`text-center p-3 rounded-md ${
+                    isSelected ? 'bg-white bg-opacity-10' : 'bg-white border border-slate-200'
+                  }`}>
                     <div className={`text-lg font-semibold ${isSelected ? 'text-white' : 'text-green-600'}`}>
                       {location.fuel_sensors}
                     </div>
-                    <div className={`text-xs ${isSelected ? 'text-blue-100' : 'text-green-600'}`}>Sensors</div>
+                    <div className={`text-xs ${isSelected ? 'text-blue-100' : 'text-green-600'}`}>
+                      Sensors
+                    </div>
                   </div>
                 </div>
 
@@ -220,7 +192,7 @@ const LocationOverview = memo(() => {
                           Days {days.length > 0 ? Math.min(...days) : 0} - {days.length > 0 ? Math.max(...days) : 0}
                         </span>
                       </div>
-
+                      
                       <div className="grid grid-cols-3 gap-2 text-center">
                         <div className="bg-white bg-opacity-10 rounded-md p-2">
                           <div className="text-sm font-semibold text-white">{progress.completed}</div>
@@ -247,6 +219,6 @@ const LocationOverview = memo(() => {
   );
 });
 
-LocationOverview.displayName = 'LocationOverview';
+OptimizedLocationOverview.displayName = 'OptimizedLocationOverview';
 
-export default LocationOverview;
+export default OptimizedLocationOverview;
