@@ -33,7 +33,6 @@ const LocationOverview = memo(() => {
 
   // Memoized and cached location progress calculations
   const getLocationProgress = useCallback((locationName: string) => {
-    // Check cache first
     const cacheKey = `${locationName}-${vehicles.length}-${vehicles.filter(v => v.status === 'Completed').length}`;
     if (calculationCache.current.has(cacheKey)) {
       return calculationCache.current.get(cacheKey);
@@ -51,7 +50,6 @@ const LocationOverview = memo(() => {
       progress: total > 0 ? Math.round((completed / total) * 100) : 0
     };
     
-    // Cache the result
     calculationCache.current.set(cacheKey, result);
     return result;
   }, [vehicles]);
@@ -63,7 +61,8 @@ const LocationOverview = memo(() => {
     }
     
     const locationVehicles = vehicles.filter(v => v.location === locationName);
-    const days = [...new Set(locationVehicles.map(v => v.day))].sort((a, b) => a - b);
+    // ✅ FIX: Use Array.from instead of spread operator on Set
+    const days = Array.from(new Set(locationVehicles.map(v => v.day))).sort((a, b) => a - b);
     
     calculationCache.current.set(cacheKey, days);
     return days;
